@@ -2,45 +2,52 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from llama_cpp import Llama
 import os
+import subprocess
 
 app = FastAPI()
 
-# Path where model will be saved
 MODEL_PATH = "/data/model.gguf"
-
-# Create folder if it doesn't exist
 os.makedirs("/data", exist_ok=True)
 
-print("🔄 Loading Dolphin 1B model...")
+# Download model if missing
+if not os.path.exists(MODEL_PATH):
+    print("⏳ Downloading model (this takes 3-5 minutes)...")
+    result = subprocess.run([
+        "wget", "--timeout=600", "-O", MODEL_PATH,
+        "https://huggingface.co/cognitivecomputations/dolphin-3.0-mistral-7b-gguf/resolve/main/dolphin-3.0-l3.2-1b-rp_uncensored.gguf?download=true"
+    ])
+    if result.returncode == 0:
+        print("✅ Model downloaded!")
+    else:
+        print("❌ Download failed")
+
+print("🔄 Loading model into memory...")
 
 try:
     llm = Llama(
         model_path=MODEL_PATH,
-        n_ctx=256,      # Keep small
-        n_threads=2,    # Use 2 threads
-        n_batch=64,     # Small batch
+        n_ctx=256,
+        n_threads=2,
+        n_batch=64,
         use_mlock=False,
         verbose=False
     )
-    print("✅ Model loaded!")
+    print("✅ Model ready!")
 except Exception as e:
     print(f"❌ Error: {e}")
     llm = None
 
-# Define request format
 class Prompt(BaseModel):
     text: str
 
-# Test endpoint
 @app.get("/")
 def home():
-    return {"message": "Dolphin 1B is running!"}
+    return {"status": "Dolphin 1B running"}
 
-# Main AI endpoint
 @app.post("/generate")
 def generate(prompt: Prompt):
     if not llm:
-        return {"error": "Model not loaded"}
+        return {"error": "Model still loading, try again in 30 seconds"}
     
     response = llm(
         prompt.text,
@@ -48,10 +55,8 @@ def generate(prompt: Prompt):
         temperature=0.8,
         top_p=0.95
     )
-    
     return {"response": response["choices"][0]["text"]}
 
-# For Railway
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", 8000))
